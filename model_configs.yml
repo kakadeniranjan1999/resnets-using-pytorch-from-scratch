@@ -1,0 +1,21 @@
+load_data:
+  save_dir: './data'
+  workers: 4
+
+train:
+  arch_name: "resnet20"  # Select ResNet architecture one from ['resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
+  epochs: 200
+  start_epoch: 1  # Integer value from [1, epochs]
+  batch_size: 128
+  learning_rate: 0.1
+  momentum: 0.9
+  weight_decay: 1e-4
+  lr_scheduler_milestones: [100, 150]
+
+validate:
+  should_validate: True
+
+save_model:
+  saved_model_dir: './saved_models'
+  save_checkpoint_epoch: 25
+
