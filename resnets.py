@@ -1,26 +1,14 @@
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.nn.init as init
-
-from torch.autograd import Variable
 
 
-
-# def _weights_init(m):
-#     classname = m.__class__.__name__
-#     # print(classname)
-#     if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
-#         init.kaiming_normal_(m.weight)
-
-
-class LambdaLayer(nn.Module):
-    def __init__(self, lambd):
-        super(LambdaLayer, self).__init__()
-        self.lambd = lambd
+class IdentityShortcuts(nn.Module):
+    def __init__(self, identity_downsample):
+        super(IdentityShortcuts, self).__init__()
+        self.identity_downsample = identity_downsample
 
     def forward(self, x):
-        return self.lambd(x)
+        return self.identity_downsample(x)
 
 
 class BaseResidualBlock(nn.Module):
@@ -35,10 +23,10 @@ class BaseResidualBlock(nn.Module):
 
         self.down_sample = None
         if stride != (1, 1) or in_channels != out_channels:
-            self.down_sample = LambdaLayer(lambda x: F.pad(x[:, :, ::2, ::2],
-                                                           (0, 0, 0, 0, out_channels // 4, out_channels // 4),
-                                                           "constant",
-                                                           0))
+            self.down_sample = IdentityShortcuts(lambda x: F.pad(x[:, :, ::2, ::2],
+                                                                 (0, 0, 0, 0, out_channels // 4, out_channels // 4),
+                                                                 "constant",
+                                                                 0))
 
     def forward(self, x):
         identity = x.clone()

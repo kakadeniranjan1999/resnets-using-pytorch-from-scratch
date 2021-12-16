@@ -1,6 +1,4 @@
-import argparse
 import os
-import shutil
 import time
 import torch
 import torch.nn as nn
@@ -14,7 +12,6 @@ from torchsummary import summary
 from resnets import ResNet, BaseResidualBlock
 from config_reader import read_config
 
-
 model_names = {
     'resnet20': [3, 3, 3],
     'resnet32': [5, 5, 5],
@@ -24,131 +21,75 @@ model_names = {
     'resnet1202': [200, 200, 200]
 }
 
-print(model_names)
-
-# parser = argparse.ArgumentParser(description='Propert ResNets for CIFAR10 in pytorch')
-# parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet32',
-#                     choices=model_names,
-#                     help='model architecture: ' + ' | '.join(model_names) +
-#                          ' (default: resnet32)')
-# parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
-#                     help='number of data loading workers (default: 4)')
-# parser.add_argument('--epochs', default=200, type=int, metavar='N',
-#                     help='number of total epochs to run')
-# parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
-#                     help='manual epoch number (useful on restarts)')
-# parser.add_argument('-b', '--batch-size', default=128, type=int,
-#                     metavar='N', help='mini-batch size (default: 128)')
-# parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
-#                     metavar='LR', help='initial learning rate')
-# parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
-#                     help='momentum')
-# parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
-#                     metavar='W', help='weight decay (default: 1e-4)')
-# parser.add_argument('--print-freq', '-p', default=50, type=int,
-#                     metavar='N', help='print frequency (default: 50)')
-# parser.add_argument('--resume', default='', type=str, metavar='PATH',
-#                     help='path to latest checkpoint (default: none)')
-# parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
-#                     help='evaluate model on validation set')
-# parser.add_argument('--pretrained', dest='pretrained', action='store_true',
-#                     help='use pre-trained model')
-# parser.add_argument('--half', dest='half', action='store_true',
-#                     help='use half-precision(16-bit) ')
-# parser.add_argument('--save-dir', dest='save_dir',
-#                     help='The directory used to save the trained models',
-#                     default='save_temp', type=str)
-# parser.add_argument('--save-every', dest='save_every',
-#                     help='Saves checkpoints at every specified number of epochs',
-#                     type=int, default=10)
 best_prec1 = 0
 
 
 def main():
     training_configs = read_config(file_path='model_configs.yml')
 
-    # global args, \
     global best_prec1
-    # args = parser.parse_args()
 
     # Check the save_dir exists or not
     if not os.path.exists(training_configs['save_model']['saved_model_dir']):
         os.makedirs(training_configs['save_model']['saved_model_dir'])
 
-    model = torch.nn.DataParallel(ResNet(BaseResidualBlock, model_names[training_configs['train']['arch_name'].lower()]))
-    # model.cuda()
-
-    summary(model, input_size=(3, 32, 32))
-
-    # optionally resume from a checkpoint
-    # if args.resume:
-    #     if os.path.isfile(args.resume):
-    #         print("=> loading checkpoint '{}'".format(args.resume))
-    #         checkpoint = torch.load(args.resume)
-    #         args.start_epoch = checkpoint['epoch']
-    #         best_prec1 = checkpoint['best_prec1']
-    #         model.load_state_dict(checkpoint['state_dict'])
-    #         print("=> loaded checkpoint '{}' (epoch {})"
-    #               .format(args.evaluate, checkpoint['epoch']))
-    #     else:
-    #         print("=> no checkpoint found at '{}'".format(args.resume))
-
-    # cudnn.benchmark = True
-
     normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5],
                                      std=[0.5, 0.5, 0.5])
 
-    train_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR10(root=training_configs['load_data']['save_dir'], train=True, transform=transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, 4),
-            transforms.ToTensor(),
-            normalize,
-        ]), download=True),
-        batch_size=training_configs['train']['batch_size'], shuffle=True,
-        num_workers=training_configs['load_data']['workers'], pin_memory=True)
+    cifar_dataset = datasets.CIFAR10(root=training_configs['load_data']['save_dir'], train=True,
+                                     transform=transforms.Compose([
+                                         transforms.RandomHorizontalFlip(),
+                                         transforms.RandomCrop(32, 4),
+                                         transforms.ToTensor(),
+                                         normalize]), download=True)
 
-    val_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR10(root=training_configs['load_data']['save_dir'], train=False, transform=transforms.Compose([
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=training_configs['train']['batch_size'], shuffle=False,
-        num_workers=training_configs['load_data']['workers'], pin_memory=True)
+    train_set, valid_set = torch.utils.data.random_split(cifar_dataset, [45000, 5000])
 
-    # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda()
+    train_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=training_configs['train']['batch_size'],
+                                               shuffle=True,
+                                               num_workers=training_configs['load_data']['workers'], pin_memory=True)
 
-    # if args.half:
-    #     model.half()
-    #     criterion.half()
+    valid_loader = torch.utils.data.DataLoader(dataset=valid_set, batch_size=training_configs['train']['batch_size'],
+                                               shuffle=True,
+                                               num_workers=training_configs['load_data']['workers'], pin_memory=True)
 
-    optimizer = torch.optim.SGD(model.parameters(), training_configs['train']['learning_rate'],
-                                momentum=training_configs['train']['momentum'],
-                                weight_decay=training_configs['train']['weight_decay'],
-                                )
+    resnet_model = torch.nn.DataParallel(
+        ResNet(BaseResidualBlock, model_names[training_configs['train']['arch_name'].lower()]))
+    resnet_model.cuda()
+    cudnn.benchmark = True
 
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                        milestones=training_configs['train']['lr_scheduler_milestones'],
-                                                        )
+    summary(resnet_model, input_size=(3, 32, 32))
+
+    # define loss function
+    loss_func = nn.CrossEntropyLoss().cuda()
+
+    # define SGD optimizer
+    sgd_optimizer = torch.optim.SGD(resnet_model.parameters(), training_configs['train']['learning_rate'],
+                                    momentum=training_configs['train']['momentum'],
+                                    weight_decay=training_configs['train']['weight_decay'],
+                                    )
+
+    # define learning rate scheduler
+    lr_tuner = torch.optim.lr_scheduler.MultiStepLR(sgd_optimizer,
+                                                    milestones=training_configs['train']['lr_scheduler_milestones'],
+                                                    )
 
     if training_configs['train']['arch_name'] in ['resnet1202', 'resnet110']:
-        for param_group in optimizer.param_groups:
+        for param_group in sgd_optimizer.param_groups:
             param_group['lr'] = training_configs['train']['learning_rate'] * 0.1
 
     if training_configs['validate']['should_validate']:
-        validate(val_loader, model, criterion)
+        validate(valid_loader, resnet_model, loss_func)
         return
 
     for epoch in range(0, training_configs['train']['epochs']):
 
-        # train for one epoch
-        print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
-        train(train_loader, model, criterion, optimizer, epoch)
-        lr_scheduler.step()
+        print('current lr {:.5e}'.format(sgd_optimizer.param_groups[0]['lr']))
+        train(train_loader, resnet_model, loss_func, sgd_optimizer, epoch)
+        lr_tuner.step()
 
-        # evaluate on validation set
-        prec1 = validate(val_loader, model, criterion)
+        # validate the current training progress
+        prec1 = validate(valid_loader, resnet_model, loss_func)
 
         # remember best prec@1 and save checkpoint
         is_best = prec1 > best_prec1
@@ -157,17 +98,17 @@ def main():
         if epoch > 0 and epoch % training_configs['save_model']['save_checkpoint_epoch'] == 0:
             save_checkpoint({
                 'epoch': epoch + 1,
-                'state_dict': model.state_dict(),
+                'state_dict': resnet_model.state_dict(),
                 'best_prec1': best_prec1,
             }, is_best, filename=os.path.join(training_configs['save_model']['saved_model_dir'], 'checkpoint.th'))
 
         save_checkpoint({
-            'state_dict': model.state_dict(),
+            'state_dict': resnet_model.state_dict(),
             'best_prec1': best_prec1,
         }, is_best, filename=os.path.join(training_configs['save_model']['saved_model_dir'], 'model.th'))
 
 
-def train(train_loader, model, criterion, optimizer, epoch):
+def train(train_loader, model, loss_func, optimizer, epoch):
     """
         Run one train epoch
     """
@@ -188,14 +129,12 @@ def train(train_loader, model, criterion, optimizer, epoch):
         target = target
         input_var = input
         target_var = target
-        # if args.half:
-        #     input_var = input_var.half()
 
-        # compute output
+        # forward propagation
         output = model(input_var)
-        loss = criterion(output, target_var)
+        loss = loss_func(output, target_var)
 
-        # compute gradient and do SGD step
+        # backpropagation
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -211,7 +150,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % 50 == 0:
+        if i % 128 == 0:
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -220,7 +159,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
                                                                   data_time=data_time, loss=losses, top1=top1))
 
 
-def validate(val_loader, model, criterion):
+def validate(val_loader, model, loss_func):
     """
     Run evaluation
     """
@@ -238,12 +177,9 @@ def validate(val_loader, model, criterion):
             input_var = input
             target_var = target
 
-            # if args.half:
-            #     input_var = input_var.half()
-
             # compute output
             output = model(input_var)
-            loss = criterion(output, target_var)
+            loss = loss_func(output, target_var)
 
             output = output.float()
             loss = loss.float()
@@ -262,11 +198,9 @@ def validate(val_loader, model, criterion):
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                    i, len(val_loader), batch_time=batch_time, loss=losses,
-                    top1=top1))
+                    i, len(val_loader), batch_time=batch_time, loss=losses, top1=top1))
 
-    print(' * Prec@1 {top1.avg:.3f}'
-          .format(top1=top1))
+    print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
 
     return top1.avg
 
