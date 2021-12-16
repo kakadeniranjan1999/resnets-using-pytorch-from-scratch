@@ -5,7 +5,6 @@ import torch.nn.init as init
 
 from torch.autograd import Variable
 
-__all__ = ['ResNet', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
 
 
 # def _weights_init(m):
@@ -35,7 +34,7 @@ class BaseResidualBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(out_channels)
 
         self.down_sample = None
-        if stride != 1 or in_channels != out_channels:
+        if stride != (1, 1) or in_channels != out_channels:
             self.down_sample = LambdaLayer(lambda x: F.pad(x[:, :, ::2, ::2],
                                                            (0, 0, 0, 0, out_channels // 4, out_channels // 4),
                                                            "constant",
@@ -93,45 +92,3 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.linear(x)
         return x
-
-
-def resnet20():
-    return ResNet(BaseResidualBlock, [3, 3, 3])
-
-
-def resnet32():
-    return ResNet(BaseResidualBlock, [5, 5, 5])
-
-
-def resnet44():
-    return ResNet(BaseResidualBlock, [7, 7, 7])
-
-
-def resnet56():
-    return ResNet(BaseResidualBlock, [9, 9, 9])
-
-
-def resnet110():
-    return ResNet(BaseResidualBlock, [18, 18, 18])
-
-
-def resnet1202():
-    return ResNet(BaseResidualBlock, [200, 200, 200])
-
-
-def test(net):
-    import numpy as np
-    total_params = 0
-
-    for x in filter(lambda p: p.requires_grad, net.parameters()):
-        total_params += np.prod(x.data.numpy().shape)
-    print("Total number of params", total_params)
-    print("Total layers", len(list(filter(lambda p: p.requires_grad and len(p.data.size()) > 1, net.parameters()))))
-
-
-if __name__ == "__main__":
-    for net_name in __all__:
-        if net_name.startswith('resnet'):
-            print(net_name)
-            test(globals()[net_name]())
-            print()

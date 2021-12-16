@@ -10,13 +10,19 @@ import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-import resnets
+from torchsummary import summary
+from resnets import ResNet, BaseResidualBlock
 from config_reader import read_config
 
-model_names = sorted(name for name in resnets.__dict__
-                     if name.islower() and not name.startswith("__")
-                     and name.startswith("resnet")
-                     and callable(resnets.__dict__[name]))
+
+model_names = {
+    'resnet20': [3, 3, 3],
+    'resnet32': [5, 5, 5],
+    'resnet44': [7, 7, 7],
+    'resnet56': [9, 9, 9],
+    'resnet110': [18, 18, 18],
+    'resnet1202': [200, 200, 200]
+}
 
 print(model_names)
 
@@ -69,8 +75,10 @@ def main():
     if not os.path.exists(training_configs['save_model']['saved_model_dir']):
         os.makedirs(training_configs['save_model']['saved_model_dir'])
 
-    model = torch.nn.DataParallel(resnets.__dict__[training_configs['train']['arch_name']]())
-    model.cuda()
+    model = torch.nn.DataParallel(ResNet(BaseResidualBlock, model_names[training_configs['train']['arch_name'].lower()]))
+    # model.cuda()
+
+    summary(model, input_size=(3, 32, 32))
 
     # optionally resume from a checkpoint
     # if args.resume:
@@ -85,10 +93,10 @@ def main():
     #     else:
     #         print("=> no checkpoint found at '{}'".format(args.resume))
 
-    cudnn.benchmark = True
+    # cudnn.benchmark = True
 
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
+    normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                                     std=[0.5, 0.5, 0.5])
 
     train_loader = torch.utils.data.DataLoader(
         datasets.CIFAR10(root=training_configs['load_data']['save_dir'], train=True, transform=transforms.Compose([
@@ -105,7 +113,7 @@ def main():
             transforms.ToTensor(),
             normalize,
         ])),
-        batch_size=128, shuffle=False,
+        batch_size=training_configs['train']['batch_size'], shuffle=False,
         num_workers=training_configs['load_data']['workers'], pin_memory=True)
 
     # define loss function (criterion) and optimizer
@@ -121,7 +129,7 @@ def main():
                                 )
 
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                        milestones=training_configs['train']['lr_scheduler_milestonrs'],
+                                                        milestones=training_configs['train']['lr_scheduler_milestones'],
                                                         )
 
     if training_configs['train']['arch_name'] in ['resnet1202', 'resnet110']:
@@ -132,7 +140,7 @@ def main():
         validate(val_loader, model, criterion)
         return
 
-    for epoch in range(training_configs['train']['start_epoch'], training_configs['train']['epoch']):
+    for epoch in range(0, training_configs['train']['epochs']):
 
         # train for one epoch
         print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
@@ -177,8 +185,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        target = target.cuda()
-        input_var = input.cuda()
+        target = target
+        input_var = input
         target_var = target
         # if args.half:
         #     input_var = input_var.half()
@@ -226,9 +234,9 @@ def validate(val_loader, model, criterion):
     end = time.time()
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
-            target = target.cuda()
-            input_var = input.cuda()
-            target_var = target.cuda()
+            target = target
+            input_var = input
+            target_var = target
 
             # if args.half:
             #     input_var = input_var.half()
