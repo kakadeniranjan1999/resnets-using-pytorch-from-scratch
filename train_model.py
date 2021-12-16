@@ -78,10 +78,6 @@ def main():
         for param_group in sgd_optimizer.param_groups:
             param_group['lr'] = training_configs['train']['learning_rate'] * 0.1
 
-    if training_configs['validate']['should_validate']:
-        validate(valid_loader, resnet_model, loss_func)
-        return
-
     for epoch in range(0, training_configs['train']['epochs']):
 
         print('current lr {:.5e}'.format(sgd_optimizer.param_groups[0]['lr']))
