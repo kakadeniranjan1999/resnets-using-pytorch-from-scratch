@@ -122,8 +122,8 @@ def train(train_loader, model, loss_func, optimizer, epoch):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        target = target
-        input_var = input
+        target = target.cuda()
+        input_var = input.cuda()
         target_var = target
 
         # forward propagation
@@ -146,7 +146,7 @@ def train(train_loader, model, loss_func, optimizer, epoch):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % 128 == 0:
+        if i % 50 == 0:
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -169,9 +169,12 @@ def validate(val_loader, model, loss_func):
     end = time.time()
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
-            target = target
-            input_var = input
-            target_var = target
+            target = target.cuda()
+            input_var = input.cuda()
+            target_var = target.cuda()
+
+            # if args.half:
+            #     input_var = input_var.half()
 
             # compute output
             output = model(input_var)
