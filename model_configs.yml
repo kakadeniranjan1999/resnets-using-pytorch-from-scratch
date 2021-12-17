@@ -10,6 +10,16 @@ train:
   momentum: 0.9
   weight_decay: 0.0001
   lr_scheduler_milestones: [91, 136]
+  verbose_display_iter: 50  # Iteration interval after which training verbose is displayed (should be integer value)
+
+validate:
+  verbose_display_iter: 10  # Iteration interval after which validation verbose is displayed (should be integer value)
+
+test:
+  test_model: False
+  arch_name: "resnet20"  # Select ResNet architecture one from ['resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
+  model_path: './saved_models/ResNet20/model.th'
+  verbose_display_iter: 10  # Iteration interval after which testing verbose is displayed (should be integer value)
 
 save_model:
   saved_model_dir: './saved_models'

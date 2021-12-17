@@ -12,7 +12,7 @@ from torchsummary import summary
 from resnets import ResNet, BaseResidualBlock
 from config_reader import read_config
 
-model_names = {
+model_blocks = {
     'resnet20': [3, 3, 3],
     'resnet32': [5, 5, 5],
     'resnet44': [7, 7, 7],
@@ -24,19 +24,49 @@ model_names = {
 best_prec1 = 0
 
 
+def load_model(model_path, num_blocks):
+    test_model = torch.nn.DataParallel(ResNet(BaseResidualBlock, num_blocks))
+    model_checkpoint = torch.load(model_path)
+    test_model.load_state_dict(model_checkpoint['state_dict'])
+    test_model.eval()
+    return test_model
+
+
 def main():
-    training_configs = read_config(file_path='model_configs.yml')
+    process_configs = read_config(file_path='model_configs.yml')
 
     global best_prec1
 
     # Check the save_dir exists or not
-    if not os.path.exists(training_configs['save_model']['saved_model_dir']):
-        os.makedirs(training_configs['save_model']['saved_model_dir'])
+    if not os.path.exists(process_configs['save_model']['saved_model_dir']):
+        os.makedirs(process_configs['save_model']['saved_model_dir'])
 
     normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5],
                                      std=[0.5, 0.5, 0.5])
 
-    cifar_dataset = datasets.CIFAR10(root=training_configs['load_data']['save_dir'], train=True,
+    # Tests the trained model is test_model is set True
+    if process_configs['test']['test_model']:
+        loss_func = nn.CrossEntropyLoss().cuda()
+
+        test_set = datasets.CIFAR10(root='data/', train=False,
+                                    transform=transforms.Compose([
+                                        transforms.RandomHorizontalFlip(),
+                                        transforms.RandomCrop(32, 4),
+                                        transforms.ToTensor(),
+                                        normalize]), download=True)
+
+        test_loader = torch.utils.data.DataLoader(dataset=test_set, batch_size=128,
+                                                  shuffle=True,
+                                                  num_workers=2, pin_memory=True)
+
+        resnet_model = load_model(model_path=process_configs['test']['model_path'],
+                                  num_blocks=model_blocks[process_configs['train']['arch_name'].lower()])
+
+        test_or_validate(test_loader, resnet_model, loss_func, process_configs['test']['verbose_display_iter'])
+
+        return
+
+    cifar_dataset = datasets.CIFAR10(root=process_configs['load_data']['save_dir'], train=True,
                                      transform=transforms.Compose([
                                          transforms.RandomHorizontalFlip(),
                                          transforms.RandomCrop(32, 4),
@@ -45,16 +75,16 @@ def main():
 
     train_set, valid_set = torch.utils.data.random_split(cifar_dataset, [45000, 5000])
 
-    train_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=training_configs['train']['batch_size'],
+    train_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=process_configs['train']['batch_size'],
                                                shuffle=True,
-                                               num_workers=training_configs['load_data']['workers'], pin_memory=True)
+                                               num_workers=process_configs['load_data']['workers'], pin_memory=True)
 
-    valid_loader = torch.utils.data.DataLoader(dataset=valid_set, batch_size=training_configs['train']['batch_size'],
+    valid_loader = torch.utils.data.DataLoader(dataset=valid_set, batch_size=process_configs['train']['batch_size'],
                                                shuffle=True,
-                                               num_workers=training_configs['load_data']['workers'], pin_memory=True)
+                                               num_workers=process_configs['load_data']['workers'], pin_memory=True)
 
     resnet_model = torch.nn.DataParallel(
-        ResNet(BaseResidualBlock, model_names[training_configs['train']['arch_name'].lower()]))
+        ResNet(BaseResidualBlock, model_blocks[process_configs['train']['arch_name'].lower()]))
     resnet_model.cuda()
     cudnn.benchmark = True
 
@@ -64,47 +94,49 @@ def main():
     loss_func = nn.CrossEntropyLoss().cuda()
 
     # define SGD optimizer
-    sgd_optimizer = torch.optim.SGD(resnet_model.parameters(), training_configs['train']['learning_rate'],
-                                    momentum=training_configs['train']['momentum'],
-                                    weight_decay=training_configs['train']['weight_decay'],
+    sgd_optimizer = torch.optim.SGD(resnet_model.parameters(), process_configs['train']['learning_rate'],
+                                    momentum=process_configs['train']['momentum'],
+                                    weight_decay=process_configs['train']['weight_decay'],
                                     )
 
     # define learning rate scheduler
     lr_tuner = torch.optim.lr_scheduler.MultiStepLR(sgd_optimizer,
-                                                    milestones=training_configs['train']['lr_scheduler_milestones'],
+                                                    milestones=process_configs['train']['lr_scheduler_milestones'],
                                                     )
 
-    if training_configs['train']['arch_name'] in ['resnet1202', 'resnet110']:
+    if process_configs['train']['arch_name'] in ['resnet1202', 'resnet110']:
         for param_group in sgd_optimizer.param_groups:
-            param_group['lr'] = training_configs['train']['learning_rate'] * 0.1
+            param_group['lr'] = process_configs['train']['learning_rate'] * 0.1
 
-    for epoch in range(0, training_configs['train']['epochs']):
+    for epoch in range(0, process_configs['train']['epochs']):
 
         print('current lr {:.5e}'.format(sgd_optimizer.param_groups[0]['lr']))
-        train(train_loader, resnet_model, loss_func, sgd_optimizer, epoch)
+        train(train_loader, resnet_model, loss_func, sgd_optimizer, epoch,
+              process_configs['train']['verbose_display_iter'])
         lr_tuner.step()
 
         # validate the current training progress
-        prec1 = validate(valid_loader, resnet_model, loss_func)
+        prec1 = test_or_validate(valid_loader, resnet_model, loss_func,
+                                 process_configs['validate']['verbose_display_iter'])
 
         # remember best prec@1 and save checkpoint
         is_best = prec1 > best_prec1
         best_prec1 = max(prec1, best_prec1)
 
-        if epoch > 0 and epoch % training_configs['save_model']['save_checkpoint_epoch'] == 0:
+        if epoch > 0 and epoch % process_configs['save_model']['save_checkpoint_epoch'] == 0:
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': resnet_model.state_dict(),
                 'best_prec1': best_prec1,
-            }, is_best, filename=os.path.join(training_configs['save_model']['saved_model_dir'], 'checkpoint.th'))
+            }, is_best, filename=os.path.join(process_configs['save_model']['saved_model_dir'], 'checkpoint.th'))
 
         save_checkpoint({
             'state_dict': resnet_model.state_dict(),
             'best_prec1': best_prec1,
-        }, is_best, filename=os.path.join(training_configs['save_model']['saved_model_dir'], 'model.th'))
+        }, is_best, filename=os.path.join(process_configs['save_model']['saved_model_dir'], 'model.th'))
 
 
-def train(train_loader, model, loss_func, optimizer, epoch):
+def train(train_loader, model, loss_func, optimizer, epoch, verbose_display_iter):
     """
         Run one train epoch
     """
@@ -146,7 +178,7 @@ def train(train_loader, model, loss_func, optimizer, epoch):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % 50 == 0:
+        if i % verbose_display_iter == 0:
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -155,7 +187,7 @@ def train(train_loader, model, loss_func, optimizer, epoch):
                                                                   data_time=data_time, loss=losses, top1=top1))
 
 
-def validate(val_loader, model, loss_func):
+def test_or_validate(data_loader, model, loss_func, verbose_display_iter):
     """
     Run evaluation
     """
@@ -168,13 +200,10 @@ def validate(val_loader, model, loss_func):
 
     end = time.time()
     with torch.no_grad():
-        for i, (input, target) in enumerate(val_loader):
+        for i, (input, target) in enumerate(data_loader):
             target = target.cuda()
             input_var = input.cuda()
             target_var = target.cuda()
-
-            # if args.half:
-            #     input_var = input_var.half()
 
             # compute output
             output = model(input_var)
@@ -192,14 +221,15 @@ def validate(val_loader, model, loss_func):
             batch_time.update(time.time() - end)
             end = time.time()
 
-            if i % 50 == 0:
-                print('Test: [{0}/{1}]\t'
+            if i % verbose_display_iter == 0:
+                print('Test/Validation: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                    i, len(val_loader), batch_time=batch_time, loss=losses, top1=top1))
+                    i, len(data_loader), batch_time=batch_time, loss=losses, top1=top1))
 
     print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+    print('Top1 error rate -> {}\n'.format(100 - top1.avg))
 
     return top1.avg
 
