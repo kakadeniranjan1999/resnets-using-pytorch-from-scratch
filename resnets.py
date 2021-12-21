@@ -14,7 +14,7 @@ class IdentityShortcuts(nn.Module):
 class BaseResidualBlock(nn.Module):
     expansion_factor = 1
 
-    def __init__(self, in_channels, out_channels, stride=(1, 1)):  # , option='A'):
+    def __init__(self, in_channels, out_channels, stride=(1, 1)):
         super(BaseResidualBlock, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=(3, 3), stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
@@ -38,6 +38,7 @@ class BaseResidualBlock(nn.Module):
         x = self.bn2(x)
 
         if self.down_sample is not None:
+            print(identity.size())
             identity = self.down_sample(identity)
 
         x += identity
