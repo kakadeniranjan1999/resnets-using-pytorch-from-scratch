@@ -12,7 +12,6 @@ class IdentityShortcuts(nn.Module):
 
 
 class BaseResidualBlock(nn.Module):
-    expansion_factor = 1
 
     def __init__(self, in_channels, out_channels, stride=(1, 1)):
         super(BaseResidualBlock, self).__init__()
@@ -38,7 +37,6 @@ class BaseResidualBlock(nn.Module):
         x = self.bn2(x)
 
         if self.down_sample is not None:
-            print(identity.size())
             identity = self.down_sample(identity)
 
         x += identity
@@ -64,7 +62,7 @@ class ResNet(nn.Module):
         layers = []
         for stride in strides:
             layers.append(res_block(self.in_channels, out_channels, stride))
-            self.in_channels = out_channels * res_block.expansion_factor
+            self.in_channels = out_channels
 
         return nn.Sequential(*layers)
 

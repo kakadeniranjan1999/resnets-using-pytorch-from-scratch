@@ -27,7 +27,11 @@ best_prec1 = 0
 def load_model(model_path, num_blocks):
     test_model = torch.nn.DataParallel(ResNet(BaseResidualBlock, num_blocks))
     model_checkpoint = torch.load(model_path)
+
+    # state_dict obj maps each layer to its parameter tensor
     test_model.load_state_dict(model_checkpoint['state_dict'])
+
+    #  switch to evaluation mode
     test_model.eval()
     return test_model
 
@@ -36,6 +40,7 @@ def train(train_loader, model, loss_func, optimizer, epoch, verbose_display_iter
     """
         Run one train epoch
     """
+    #  Instantiate the variables to store the training info
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -60,8 +65,8 @@ def train(train_loader, model, loss_func, optimizer, epoch, verbose_display_iter
 
         # backpropagation
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        loss.backward()  # calculates the gradients
+        optimizer.step()  # updates the trainable params
 
         output = output.float()
         loss = loss.float()
@@ -161,8 +166,8 @@ def accuracy(output, target, topk=(1,)):
     max_k = max(topk)
     batch_size = target.size(0)
 
-    _, pred = output.topk(max_k, 1, True, True)
-    pred = pred.t()
+    _, pred = output.topk(max_k, 1, True, True)  # returns k largest elements from the tensor
+    pred = pred.t()  # get the transpose
     correct = pred.eq(target.view(1, -1).expand_as(pred))
 
     res = []
@@ -223,6 +228,8 @@ def main():
                                                shuffle=True,
                                                num_workers=process_configs['load_data']['workers'], pin_memory=True)
 
+    # Uses threading to achieve parallel computations on multiple GPUs (can lead to issues due to GIL lock)
+    # DistributedDataParallel class can be used that uses multiprocessing for the same
     resnet_model = torch.nn.DataParallel(
         ResNet(BaseResidualBlock, model_blocks[process_configs['train']['arch_name'].lower()]))
     resnet_model.cuda()
@@ -253,6 +260,7 @@ def main():
         print('current lr {:.5e}'.format(sgd_optimizer.param_groups[0]['lr']))
         train(train_loader, resnet_model, loss_func, sgd_optimizer, epoch,
               process_configs['train']['verbose_display_iter'])
+
         lr_tuner.step()
 
         # validate the current training progress
