@@ -57,8 +57,6 @@ class ResNet(nn.Module):
         self.layer3 = self._initiate_layer(res_block, 64, num_blocks[2], stride=2)
         self.linear = nn.Linear(64, num_classes)
 
-        # self.apply(_weights_init)
-
     def _initiate_layer(self, res_block, out_channels, num_blocks, stride):
         strides = [(stride, stride)]
         strides.extend([(1, 1)] * (num_blocks - 1))
